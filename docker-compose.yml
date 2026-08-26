@@ -1,0 +1,99 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: school_poc
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports: ["5432:5432"]
+
+  redis:
+    image: redis:7
+    ports: ["6379:6379"]
+
+  qdrant:
+    image: qdrant/qdrant
+    ports: ["6333:6333"]
+
+  ollama:
+    image: ollama/ollama
+    volumes: ["ollama_data:/root/.ollama"]
+    ports: ["11434:11434"]
+    # Uncomment on your GPU machine:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+  mediamtx:
+    image: bluenviron/mediamtx
+    volumes:
+      - ./infra/mediamtx/mediamtx.yml:/mediamtx.yml
+    ports: ["8554:8554", "8888:8888"]
+
+  mock-camera-1:
+    build: ./mock-cameras
+    command: ["cam1"]
+    depends_on: [mediamtx]
+
+  mock-camera-2:
+    build: ./mock-cameras
+    command: ["cam2"]
+    depends_on: [mediamtx]
+
+  inference-service:
+    build: ./services/inference-service
+    ports: ["5000:5000"]
+    # Uncomment on your GPU machine:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+  gateway:
+    build: ./services/gateway
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/school_poc
+    depends_on: [postgres, mediamtx]
+    ports: ["4000:4000"]
+
+  mapping-service:
+    build: ./services/mapping-service
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/school_poc
+    depends_on: [postgres]
+    ports: ["4001:4001"]
+
+  erp-sync:
+    build: ./services/erp-sync
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/school_poc
+    depends_on: [postgres, redis]
+    ports: ["4002:4002"]
+
+  frame-sampler:
+    build: ./services/frame-sampler
+    environment:
+      INFERENCE_URL: http://inference-service:5000
+    depends_on: [mediamtx, inference-service]
+    ports: ["4003:4003"]
+
+  presence-timeline:
+    build: ./services/presence-timeline
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/school_poc
+      OLLAMA_URL: http://ollama:11434
+    depends_on: [postgres, qdrant, ollama]
+    ports: ["4004:4004"]
+
+volumes:
+  ollama_data:

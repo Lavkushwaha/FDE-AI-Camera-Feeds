@@ -1,0 +1,8 @@
+# Minimal MediaMTX config for the POC.
+# Cameras publish here via RTSP; gateway/dashboard consume via HLS.
+paths:
+  cam1:
+  cam2:
+
+hlsAddress: :8888
+rtspAddress: :8554

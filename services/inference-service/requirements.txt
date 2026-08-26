@@ -1,0 +1,8 @@
+fastapi==0.111.0
+uvicorn[standard]==0.30.1
+pydantic==2.7.4
+# Uncomment on your GPU machine (not needed to run this stub in a sandbox):
+# onnxruntime-gpu==1.18.0
+# insightface==0.7.3
+# ultralytics==8.2.0
+# qdrant-client==1.9.0
