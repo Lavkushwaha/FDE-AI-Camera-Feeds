@@ -1,4 +1,4 @@
-# Getting Started — School Vision POC
+# Getting Started — Vision Intellegence Core
 
 Step-by-step guide to run this project from zero. Prerequisites first, then bring-up
 order, then what to verify at each stage (each verification maps to a build-order

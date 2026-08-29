@@ -1,4 +1,4 @@
-# School Vision POC
+# Vision Intellegence Core
 
 Companion repo for the FDE portfolio brief. See the full design docs first:
 - Problem brief, HLD, LLD, and Eval/Observability docs (shared separately in chat).
