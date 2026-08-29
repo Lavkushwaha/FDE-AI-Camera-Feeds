@@ -5,17 +5,23 @@ Companion repo for the FDE portfolio brief. See the full design docs first:
 
 ## What's real vs stubbed right now
 
+See `MILESTONE.md` for the verified end-to-end pipeline and `FRAMEWORK.md` for the target
+architecture and roadmap. Status snapshot:
+
 | Piece | Status |
 |---|---|
 | Postgres schema + seed data | Real, runnable |
-| MediaMTX + mock cameras (synthetic test pattern via ffmpeg) | Real, runnable |
-| Gateway auth + stream token | Stub logic, real HTTP service |
+| MediaMTX + mock cameras (real .mp4 loops via ffmpeg) | Real, runnable |
+| Gateway (registry, ledger export, anomalies, HLS proxy) | Real; `/auth/login` stays a stub (see §5 auth trigger in FRAMEWORK.md) |
+| Dynamic camera registry (`POST`/`DELETE /registry/cameras`) | Real — worker-manager spawns/stops ffmpeg per camera row; see §2.1 |
 | Mapping service (room+time -> timetable slot) | Real query logic |
 | ERP sync (idempotent attendance write + conflict handling) | Real query logic |
-| Frame sampler | Polling loop wired to inference-service, frame extraction is TODO |
-| Inference service | Real FastAPI service, model inference is TODO (see comments in app/main.py) — swap in InsightFace + YOLO + Qdrant on your GPU machine |
-| Presence timeline + Ollama narrative | Real query + prompt logic, needs Ollama model pulled locally |
-| Dashboard | Not started — see dashboard/README.md |
+| Frame sampler | Real — polls the DB-driven camera registry, runs inference, persists detections + heartbeats |
+| Inference service | Real FastAPI + YOLOv8 (GPU when available); InsightFace face-matching is the next seam to plug in |
+| Anomaly engine (spike/drought/new_class/capture_gap) | Real, with ack/resolve lifecycle |
+| Presence timeline + Ollama narrative | Real query + prompt logic, on-demand only (no cadence scheduler yet) |
+| Dashboard | Real — `docker compose up -d --build dashboard`, see dashboard/README.md |
+| Retention / frame purge | Not implemented — frames accumulate until manually cleared |
 
 ## Run it
 

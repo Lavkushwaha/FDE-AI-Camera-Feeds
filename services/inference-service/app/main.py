@@ -26,7 +26,7 @@ CONF_THRESHOLD = 0.35
 
 class InferFrameRequest(BaseModel):
     camera_id: str
-    room_id: str
+    room_id: str | None = None
     timestamp: str
     frame_url: str
 

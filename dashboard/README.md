@@ -1,11 +1,18 @@
-# Dashboard (placeholder — build order step 9)
+# Operator console
 
-Not scaffolded yet on purpose: per the LLD build order, everything else should be
-working and demoable via curl/Postman first. Scaffold this as a Next.js app once
-gateway, erp-sync, and presence-timeline are returning real data — build the UI
-against real responses, not mocked ones.
+Static dashboard served on port 3000. It talks to the gateway (`http://localhost:4000`).
 
-Planned pages:
-- Live camera view (consumes GET /stream/:cameraId/token from gateway)
-- Attendance grid (consumes GET /attendance from erp-sync)
-- Student timeline with narrative (consumes GET /students/:id/timeline)
+```bash
+docker compose up -d --build dashboard gateway presence-timeline
+```
+
+Open http://localhost:3000
+
+- Live HLS per camera (proxied through the gateway)
+- YOLO overlay on the last inferred frame
+- Fact-sheet view + JSON/CSV export
+- Anomaly scan / acknowledge / resolve
+- Optional Ollama narrative (Summary tab)
+- Add/decommission cameras (file/rtsp/webcam source) without a compose edit or restart —
+  "+ Add camera" panel calls the gateway's dynamic registry endpoints; `worker-manager`
+  spawns/stops the actual ffmpeg processes (see GETTING_STARTED.md §7)

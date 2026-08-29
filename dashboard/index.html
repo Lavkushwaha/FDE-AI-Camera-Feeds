@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>VIC — Operator Console</title>
+  <link rel="stylesheet" href="./styles.css" />
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.15/dist/hls.min.js"></script>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Vision Intelligence Core</h1>
+      <p class="sub">Operator console · fact ledger · live cameras</p>
+    </div>
+    <div class="header-actions">
+      <span id="api-status" class="pill unknown">gateway</span>
+      <button id="add-camera-btn" type="button">+ Add camera</button>
+      <button id="scan-btn" type="button">Scan anomalies</button>
+    </div>
+  </header>
+
+  <section id="health-row" class="health-row"></section>
+
+  <section id="add-camera-panel" class="add-camera-panel hidden">
+    <div class="add-camera-row">
+      <input id="cam-name" type="text" placeholder="Camera name" />
+      <select id="cam-source-type">
+        <option value="file">file (looped video on disk)</option>
+        <option value="rtsp">rtsp (external camera)</option>
+        <option value="webcam">webcam (host already publishing)</option>
+      </select>
+      <input id="cam-source-uri" type="text" placeholder="/videos/yourfile.mp4 or rtsp://..." />
+      <input id="cam-fps" type="number" min="0.1" max="30" step="0.1" value="1" title="analysis fps (how often YOLO runs, not the raw video's playback rate)" />
+      <button id="cam-submit" type="button">Add</button>
+      <button id="cam-cancel" type="button">Cancel</button>
+    </div>
+    <p class="hint">
+      file source: drop a video into <code>./data/videos</code> on the host, then reference it as
+      <code>/videos/&lt;filename&gt;</code>. webcam: no URI needed — push your host webcam to
+      <code>rtsp://localhost:8554/&lt;name-you-pick&gt;</code> first (see FRAMEWORK.md §2.1), matching the stream key shown after creation.
+    </p>
+    <p id="cam-error" class="hint error hidden"></p>
+  </section>
+
+  <main>
+    <section class="stage">
+      <div class="stage-head">
+        <h2 id="cam-title">Select a camera</h2>
+        <div class="stage-head-actions">
+          <label class="toggle">
+            <input id="overlay-toggle" type="checkbox" />
+            YOLO overlay
+          </label>
+          <button id="remove-camera-btn" type="button" class="hidden">Remove camera</button>
+        </div>
+      </div>
+      <div class="stage-grid">
+        <div class="pane">
+          <p class="pane-label">Live (HLS)</p>
+          <video id="live" muted autoplay playsinline></video>
+        </div>
+        <div class="pane">
+          <p class="pane-label">Machine view (last inferred frame)</p>
+          <div class="overlay-wrap">
+            <img id="still" alt="latest frame" />
+            <canvas id="boxes"></canvas>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <aside>
+      <div class="tabs">
+        <button type="button" data-tab="anomalies" class="active">Anomalies</button>
+        <button type="button" data-tab="facts">Fact sheet</button>
+        <button type="button" data-tab="summary">Summary</button>
+      </div>
+
+      <div id="tab-anomalies" class="tab-body">
+        <div id="anomaly-list" class="list"></div>
+      </div>
+      <div id="tab-facts" class="tab-body hidden">
+        <div class="row-actions">
+          <button type="button" id="export-json">Export JSON</button>
+          <button type="button" id="export-csv">Export CSV</button>
+        </div>
+        <p id="fact-window" class="hint"></p>
+        <table id="fact-table" class="fact-table hidden">
+          <thead>
+            <tr><th>Class</th><th>Detections</th><th>Avg/frame</th><th>Avg conf</th></tr>
+          </thead>
+          <tbody id="fact-table-body"></tbody>
+        </table>
+        <p id="fact-empty" class="empty hidden">No detections in this window.</p>
+
+        <div class="frames-head">
+          <p class="pane-label">Per-frame detections (exact, not averaged)</p>
+          <div class="row-actions">
+            <button type="button" id="export-frames-json">Export JSON</button>
+            <button type="button" id="export-frames-csv">Export CSV</button>
+          </div>
+        </div>
+        <div class="frames-scroll">
+          <table id="frames-table" class="fact-table hidden">
+            <thead>
+              <tr><th>Frame</th><th>Time</th><th>Counts</th></tr>
+            </thead>
+            <tbody id="frames-table-body"></tbody>
+          </table>
+        </div>
+        <p id="frames-empty" class="empty hidden">No frames in this window.</p>
+
+        <details class="fact-raw">
+          <summary class="hint">Raw JSON</summary>
+          <pre id="fact-json"></pre>
+        </details>
+      </div>
+      <div id="tab-summary" class="tab-body hidden">
+        <div class="row-actions">
+          <select id="summary-window">
+            <option value="1m">Last 1 min</option>
+            <option value="10m">Last 10 min</option>
+            <option value="30m">Last 30 min</option>
+            <option value="1h">Last 1 hour</option>
+          </select>
+          <button type="button" id="ask-summary">Generate narrative</button>
+        </div>
+        <p class="hint">Facts-only prompt via Ollama, built from the fact-sheet over the selected window. Takes a few seconds.</p>
+        <pre id="summary-out"></pre>
+      </div>
+    </aside>
+  </main>
+  <script src="./app.js"></script>
+</body>
+</html>

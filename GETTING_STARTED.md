@@ -116,7 +116,7 @@ and switch the lavfi input to `-re -stream_loop -1 -i /videos/sample.mp4`
 ## 4. Start the application services
 
 ```bash
-docker compose up -d inference-service gateway mapping-service erp-sync frame-sampler presence-timeline
+docker compose up -d inference-service gateway mapping-service erp-sync frame-sampler presence-timeline worker-manager dashboard
 ```
 
 Or everything at once after the first time through manually:
@@ -132,7 +132,9 @@ curl http://localhost:4001/health   # mapping-service
 curl http://localhost:4002/health   # erp-sync
 curl http://localhost:4003/health   # frame-sampler
 curl http://localhost:4004/health   # presence-timeline
+curl http://localhost:4005/health   # worker-manager (dynamic camera workers)
 curl http://localhost:5000/health   # inference-service
+curl -o /dev/null -w "%{http_code}\n" http://localhost:3000/   # dashboard (static, no /health)
 ```
 
 Each returns `{"status":"ok","service":"..."}`.
@@ -236,21 +238,42 @@ generation).
 
 ---
 
-## 6. Dashboard (optional / not scaffolded yet)
+## 6. Dashboard
 
-Per the build order the UI is intentionally last. When ready:
+Static operator console (nginx + vanilla JS), talks to the gateway. It's a regular
+compose service:
 
 ```bash
-cd dashboard
-npx create-next-app@latest .
-npm run dev   # http://localhost:3000
+docker compose up -d --build dashboard gateway presence-timeline
 ```
 
-Planned pages and the APIs they consume are listed in `dashboard/README.md`.
+Open http://localhost:3000 — live HLS per camera, YOLO overlay toggle, fact-sheet
+JSON/CSV export, anomaly ack/resolve, on-demand Ollama narrative, and an "+ Add
+camera" panel that calls `POST /registry/cameras` (see §7 below). Panels and the
+APIs they consume are listed in `dashboard/README.md`.
+
+## 7. Add a camera dynamically (no compose edit, no restart)
+
+```bash
+# drop a video into ./data/videos first, e.g. cp somefile.mp4 data/videos/
+curl -X POST http://localhost:4000/registry/cameras -H "Content-Type: application/json" \
+  -d '{"name": "New Cam", "source": {"type": "file", "uri": "/videos/somefile.mp4"}, "fps": 1}'
+```
+
+`worker-manager` polls the `cameras` table every 5s and spawns/stops the ffmpeg
+publish+grab pair for you — see `services/worker-manager/README` comment at the
+top of `src/index.ts`. `source.type` is one of:
+- `file` — a video on disk under `./data/videos`, looped
+- `rtsp` — an external RTSP camera URL, relayed into MediaMTX
+- `webcam` — you push your own host webcam first (§0 prerequisites has the ffmpeg
+  command), worker-manager only runs the frame-grabber half
+
+Decommission with `curl -X DELETE http://localhost:4000/registry/cameras/<id>` —
+this stops the worker but keeps all ledger history queryable by camera_id.
 
 ---
 
-## 7. Shut down / reset
+## 8. Shut down / reset
 
 ```bash
 docker compose down                # stop everything, keep volumes
@@ -278,5 +301,5 @@ After a full reset, repeat steps 1–4 (LLM pull only once; volume persists unle
 
 Before relying on automation beyond what's above, know what's still open:
 event-queue wiring (redis unused), auto-invocation of attendance marking,
-presence stitching worker, real frame extraction, real ML models, camera
-health monitoring, dashboard. See the README "What's real vs stubbed" table.
+presence stitching worker, retention/frame purge, summary cadence scheduler,
+real auth. See the README "What's real vs stubbed" table.

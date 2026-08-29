@@ -11,26 +11,39 @@ const FRAMES_DIR = process.env.FRAMES_DIR || "/frames";
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
-// POC: hardcoded camera registry (uuids from the DB seed).
-// Production: fetch from mapping-service / cameras table.
-const CAMERAS = [
-  { camera_id: "44444444-4444-4444-4444-444444444441", room_id: "33333333-3333-3333-3333-333333333331", prefix: "cam1" },
-  { camera_id: "44444444-4444-4444-4444-444444444442", room_id: "33333333-3333-3333-3333-333333333332", prefix: "cam2" },
-];
+type Camera = { camera_id: string; room_id: string; prefix: string };
 
-// strftime names zero-pad => lexicographic sort == chronological. Fragile but free.
+let cameras: Camera[] = [];
+
+async function loadCameras() {
+  const { rows } = await pool.query(
+    `SELECT id AS camera_id, room_id, stream_key AS prefix FROM cameras WHERE stream_key IS NOT NULL AND active`
+  );
+  cameras = rows.map((r) => ({
+    camera_id: r.camera_id,
+    room_id: r.room_id,
+    prefix: r.prefix,
+  }));
+  if (cameras.length === 0) {
+    cameras = [
+      { camera_id: "44444444-4444-4444-4444-444444444441", room_id: "33333333-3333-3333-3333-333333333331", prefix: "cam1" },
+      { camera_id: "44444444-4444-4444-4444-444444444442", room_id: "33333333-3333-3333-3333-333333333332", prefix: "cam2" },
+    ];
+  }
+}
+
 function newestFrame(prefix: string): string | null {
   const files = fs.readdirSync(FRAMES_DIR)
-    .filter(f => f.startsWith(prefix) && f.endsWith(".jpg"))
+    .filter((f) => f.startsWith(prefix) && f.endsWith(".jpg"))
     .sort();
   return files.length ? path.join(FRAMES_DIR, files[files.length - 1]) : null;
 }
 
 const lastProcessed = new Map<string, string>();
 
-async function sampleCamera(cam: (typeof CAMERAS)[number]) {
+async function sampleCamera(cam: Camera) {
   const framePath = newestFrame(cam.prefix);
-  if (!framePath || framePath === lastProcessed.get(cam.prefix)) return; // nothing new
+  if (!framePath || framePath === lastProcessed.get(cam.prefix)) return;
   lastProcessed.set(cam.prefix, framePath);
   try {
     const resp = await fetch(`${INFERENCE_URL}/infer/frame`, {
@@ -48,28 +61,34 @@ async function sampleCamera(cam: (typeof CAMERAS)[number]) {
       return;
     }
     const result = await resp.json();
-    console.log(`[${cam.prefix}] ${path.basename(framePath)} objects=${result.objects?.length ?? 0} faces=${result.faces?.length ?? 0}`);
-    
     const inserted = await persistFacts(cam, path.basename(framePath), result);
-    console.log(`[${cam.prefix}] ${path.basename(framePath)} objects=${result.objects?.length ?? 0} faces=${result.faces?.length ?? 0} persisted=${inserted}`);
+    await pool.query(
+      `UPDATE cameras SET status = 'online', last_heartbeat = now() WHERE id = $1`,
+      [cam.camera_id]
+    );
+    console.log(
+      `[${cam.prefix}] ${path.basename(framePath)} objects=${result.objects?.length ?? 0} faces=${result.faces?.length ?? 0} persisted=${inserted}`
+    );
   } catch (err) {
     console.error(`[${cam.prefix}] inference failed:`, err);
   }
 }
 
 async function sampleTick() {
-  await Promise.all(CAMERAS.map(sampleCamera)); // cameras processed in parallel
+  await Promise.all(cameras.map(sampleCamera));
 }
 
-async function persistFacts(
-  cam: (typeof CAMERAS)[number],
-  frameFilename: string,
-  result: any
-) {sampleCamera
+async function persistFacts(cam: Camera, frameFilename: string, result: { faces?: unknown[]; objects?: unknown[] }) {
+  const faces = (result.faces ?? []) as Array<{ confidence: number; bbox: unknown }>;
+  const objects = (result.objects ?? []) as Array<{ cls: string; class?: string; confidence: number; bbox: unknown }>;
   const detections = [
-    ...result.faces.map((f: any) => ({ label: "person", confidence: f.confidence, bbox: f.bbox })),
-    ...result.objects.map((o: any) => ({ label: o.cls, confidence: o.confidence, bbox: o.bbox })),
+    ...faces.map((f) => ({ label: "person", confidence: f.confidence, bbox: f.bbox })),
+    ...objects.map((o) => ({ label: o.cls ?? o.class, confidence: o.confidence, bbox: o.bbox })),
   ];
+  const detectedAt = new Date(); // one timestamp for every detection in this frame —
+  // computing it per-row inside the loop below gave each row its own millisecond,
+  // which silently splits a single frame's detections across multiple timestamps
+  // in any query that groups by (frame_ref, detected_at).
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -77,16 +96,31 @@ async function persistFacts(
       await client.query(
         `INSERT INTO detection_events (camera_id, confidence, bbox, frame_ref, detected_at)
          VALUES ($1, $2, $3, $4, $5)`,
-        [cam.camera_id, d.confidence, JSON.stringify({ class: d.label, bbox: d.bbox }), frameFilename, new Date()]
+        [cam.camera_id, d.confidence, JSON.stringify({ class: d.label, bbox: d.bbox }), frameFilename, detectedAt]
       );
     }
     await client.query("COMMIT");
     return detections.length;
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
   } finally {
     client.release();
   }
 }
 
-setInterval(sampleTick, SAMPLE_INTERVAL_MS);
-app.get("/health", (_req, res) => res.json({ status: "ok", service: "frame-sampler" }));
-app.listen(PORT, () => console.log(`frame-sampler listening on ${PORT}`));
+app.get("/health", (_req, res) => res.json({ status: "ok", service: "frame-sampler", cameras: cameras.length }));
+
+async function main() {
+  await loadCameras();
+  setInterval(() => {
+    loadCameras().catch((err) => console.error("reload cameras failed", err));
+  }, 30_000);
+  setInterval(sampleTick, SAMPLE_INTERVAL_MS);
+  app.listen(PORT, () => console.log(`frame-sampler listening on ${PORT} cameras=${cameras.length}`));
+}
+
+main().catch((err) => {
+  console.error("frame-sampler failed to start", err);
+  process.exit(1);
+});
