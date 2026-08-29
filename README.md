@@ -19,6 +19,9 @@ Companion repo for the FDE portfolio brief. See the full design docs first:
 
 ## Run it
 
+See **[GETTING_STARTED.md](./GETTING_STARTED.md)** for the full step-by-step bring-up guide (infra → cameras → services → verification per pipeline stage).
+
+Quick start:
 ```bash
 docker compose up --build
 ```

@@ -1,11 +1,10 @@
-version: "3.9"
-
 services:
   postgres:
     image: postgres:16
     environment:
       POSTGRES_DB: school_poc
       POSTGRES_PASSWORD: postgres
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/school_poc
     volumes:
       - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
     ports: ["5432:5432"]
@@ -23,13 +22,13 @@ services:
     volumes: ["ollama_data:/root/.ollama"]
     ports: ["11434:11434"]
     # Uncomment on your GPU machine:
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: 1
-    #           capabilities: [gpu]
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
 
   mediamtx:
     image: bluenviron/mediamtx
@@ -39,25 +38,52 @@ services:
 
   mock-camera-1:
     build: ./mock-cameras
-    command: ["cam1"]
+    command: ["cam1", "/videos/classroom.mp4"]
+    volumes:
+      - ./mock-cameras/classroom.mp4:/videos/classroom.mp4:ro
     depends_on: [mediamtx]
 
   mock-camera-2:
     build: ./mock-cameras
-    command: ["cam2"]
+    command: ["cam2", "/videos/traffic.mp4"]
+    volumes:
+      - ./mock-cameras/traffic.mp4:/videos/traffic.mp4:ro
     depends_on: [mediamtx]
+  
+  frame-grabber-1:
+    image: jrottenberg/ffmpeg:6-ubuntu
+    command: >
+      -rtsp_transport tcp -i rtsp://mediamtx:8554/cam1
+      -r 1 -q:v 2 -strftime 1 /frames/cam1_%Y%m%d_%H%M%S.jpg
+    volumes:
+      - ./data/frames:/frames
+    depends_on: [mediamtx]
+    restart: unless-stopped
+
+  frame-grabber-2:
+    image: jrottenberg/ffmpeg:6-ubuntu
+    command: >
+      -rtsp_transport tcp -i rtsp://mediamtx:8554/cam2
+      -r 1 -q:v 2 -strftime 1 /frames/cam2_%Y%m%d_%H%M%S.jpg
+    volumes:
+      - ./data/frames:/frames
+    depends_on: [mediamtx]
+    restart: unless-stopped
 
   inference-service:
     build: ./services/inference-service
     ports: ["5000:5000"]
+    volumes:
+      - ./services/inference-service/app:/app/app
+      - ./data/frames:/frames:ro
     # Uncomment on your GPU machine:
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: 1
-    #           capabilities: [gpu]
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
 
   gateway:
     build: ./services/gateway
@@ -82,13 +108,20 @@ services:
 
   frame-sampler:
     build: ./services/frame-sampler
+    depends_on: [mediamtx, inference-service, postgres]
+    ports: ["4003:4003"]
+    volumes:
+      - ./data/frames:/frames:ro  
     environment:
       INFERENCE_URL: http://inference-service:5000
-    depends_on: [mediamtx, inference-service]
-    ports: ["4003:4003"]
+      FRAMES_DIR: /frames
+      SAMPLE_INTERVAL_MS: 1000
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/school_poc
 
   presence-timeline:
     build: ./services/presence-timeline
+    volumes:
+      - ./services/presence-timeline/src:/app/src
     environment:
       DATABASE_URL: postgres://postgres:postgres@postgres:5432/school_poc
       OLLAMA_URL: http://ollama:11434

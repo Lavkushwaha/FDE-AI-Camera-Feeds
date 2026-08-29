@@ -50,4 +50,58 @@ Returned to expected location at: ${gap.gap_end ?? "not yet returned"}`;
   res.json({ narrative, facts_used: { gap, sightings } });
 });
 
+// Build the per-minute fact-sheet for one camera from detection_events,
+// then ask the local LLM for a facts-only narrative.
+app.get("/summary/:cameraId", async (req, res) => {
+  const { cameraId } = req.params;
+  const minute = req.query.minute
+    ? String(req.query.minute)                                   // e.g. 2026-08-29 11:53
+    : new Date(Date.now() - 60000).toISOString().slice(0, 16);   // default: previous minute (UTC)
+
+  const { rows } = await pool.query(
+    `SELECT bbox->>'class' AS label,
+            count(*) AS detections,
+            round(avg(confidence)::numeric, 3) AS avg_conf,
+            min(confidence) AS min_conf,
+            max(confidence) AS max_conf
+     FROM detection_events
+     WHERE camera_id = $1 AND date_trunc('minute', detected_at) = $2::timestamptz
+     GROUP BY 1 ORDER BY 2 DESC`,
+    [cameraId, minute]
+  );
+
+  const { rows: frameRows } = await pool.query(
+    `SELECT count(DISTINCT frame_ref) AS frames_seen FROM detection_events
+     WHERE camera_id = $1 AND date_trunc('minute', detected_at) = $2::timestamptz`,
+    [cameraId, minute]
+  );
+  const framesSeen = Number(frameRows[0].frames_seen);
+
+  if (rows.length === 0) {
+    return res.status(404).json({ error: "no data for that camera/minute", minute });
+  }
+
+  const factSheet = {
+    camera_id: cameraId,
+    minute,
+    frames_seen: framesSeen,
+    frames_expected: 60,   // 1 FPS sampling
+    detections_per_class: rows,
+  };
+
+  const prompt = `You are given ONLY the following structured facts from a CCTV analytics
+system. Do not add, infer, or assume anything not explicitly present.
+Write 2-3 sentences describing what happened. ${JSON.stringify(factSheet, null, 2)}`;
+
+  const ollamaResp = await fetch(`${OLLAMA_URL}/api/generate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ model: "llama3.1:8b", prompt, stream: false }),
+  });
+  const ollamaData = await ollamaResp.json();
+  const narrative = ollamaData.response ?? "(no response from model)";
+
+  res.json({ fact_sheet: factSheet, narrative });
+});
+
 app.listen(PORT, () => console.log(`presence-timeline listening on ${PORT}`));
