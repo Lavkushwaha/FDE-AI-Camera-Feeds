@@ -5,3 +5,9 @@ __pycache__/
 *.pyc
 *.mp4
 data/
+.env.*
+*.env
+credentials.json
+*.pem
+*.key
+.credentials
