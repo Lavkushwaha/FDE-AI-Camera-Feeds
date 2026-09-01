@@ -15,6 +15,7 @@ export const vic = {
   deleteCamera: (id) => http.delete(`/cameras/${id}`).then(r => r.data),
   setZones: (id, zones) => http.put(`/cameras/${id}/zones`, zones).then(r => r.data),
   seedSample: () => http.post("/seed_sample").then(r => r.data),
+  frames: (id, limit=200, since_minutes=1440) => http.get(`/cameras/${id}/frames`, { params: { limit, since_minutes } }).then(r => r.data),
 
   uploadVideo: (id, file, sample_fps=1.0, max_frames=60, onProgress) => {
     const fd = new FormData();
@@ -30,6 +31,7 @@ export const vic = {
 
   ledger: (params) => http.get("/ledger", { params }).then(r => r.data),
   factsheet: (camera_id, minutes=10) => http.get("/ledger/factsheet", { params: { camera_id, minutes } }).then(r => r.data),
+  factsheetWithLocks: (camera_id, minutes=10) => http.get("/ledger/factsheet_with_locks", { params: { camera_id, minutes } }).then(r => r.data),
   exportLedgerURL: (params) => {
     const q = new URLSearchParams(params).toString();
     return `${API}/ledger/export?${q}`;
@@ -39,6 +41,13 @@ export const vic = {
   anomalies: (params) => http.get("/anomalies", { params }).then(r => r.data),
   ack: (id, note="") => http.post(`/anomalies/${id}/ack`, { actor: "operator", note }).then(r => r.data),
   resolve: (id, note="") => http.post(`/anomalies/${id}/resolve`, { actor: "operator", note }).then(r => r.data),
+
+  rules: () => http.get("/anomaly-rules").then(r => r.data),
+  createRule: (r) => http.post("/anomaly-rules", r).then(r => r.data),
+  updateRule: (id, r) => http.put(`/anomaly-rules/${id}`, r).then(r => r.data),
+  toggleRule: (id) => http.post(`/anomaly-rules/${id}/toggle`).then(r => r.data),
+  deleteRule: (id) => http.delete(`/anomaly-rules/${id}`).then(r => r.data),
+  testRule: (id, camera_id) => http.post(`/anomaly-rules/${id}/test`, null, { params: { camera_id } }).then(r => r.data),
 
   identities: () => http.get("/identities").then(r => r.data),
   enrollFace: (file, name, category, priority, notes) => {
@@ -56,9 +65,14 @@ export const vic = {
   createLock: (payload) => http.post("/locks", payload).then(r => r.data),
   closeLock: (id) => http.delete(`/locks/${id}`).then(r => r.data),
   sweep: (id, window_minutes=1440) => http.get(`/locks/${id}/sweep`, { params: { window_minutes } }).then(r => r.data),
+  lockInsight: (id, mode="insight", window_minutes=1440) => http.post(`/locks/${id}/insights`, { mode, window_minutes }).then(r => r.data),
+  lockInsights: (id) => http.get(`/locks/${id}/insights`).then(r => r.data),
 
   narrative: (payload) => http.post("/narrative", payload).then(r => r.data),
   narratives: () => http.get("/narratives").then(r => r.data),
+
+  chat: (message, session_id=null, max_steps=6) => http.post("/chat", { message, session_id, max_steps }).then(r => r.data),
+  chatHistory: (session_id) => http.get(`/chat/${session_id}`).then(r => r.data),
 
   purge: (hours=24) => http.post(`/retention/purge`, null, { params: { hours } }).then(r => r.data),
 };

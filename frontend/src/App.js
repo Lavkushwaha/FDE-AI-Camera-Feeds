@@ -1,22 +1,26 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Activity, Camera, ClipboardList, AlertTriangle, ScanFace, Target, Radar, Cpu, Layers, Home } from "lucide-react";
+import { Activity, Camera, ClipboardList, AlertTriangle, ScanFace, Target, Radar, Cpu, Layers, Home, Bot, SlidersHorizontal } from "lucide-react";
 import { vic } from "./api";
 import Overview from "./modules/Overview";
 import Cameras from "./modules/Cameras";
 import Ledger from "./modules/Ledger";
 import Anomalies from "./modules/Anomalies";
+import Rules from "./modules/Rules";
 import Identities from "./modules/Identities";
 import SubjectLock from "./modules/SubjectLock";
 import Narratives from "./modules/Narratives";
+import Assistant from "./modules/Assistant";
 
 const NAV = [
   { id: "overview", label: "Overview", icon: Home },
   { id: "cameras", label: "Camera Grid", icon: Camera },
   { id: "ledger", label: "Fact Ledger", icon: ClipboardList },
   { id: "anomalies", label: "Anomalies", icon: AlertTriangle },
+  { id: "rules", label: "Anomaly Rules", icon: SlidersHorizontal },
   { id: "identities", label: "Identities", icon: ScanFace },
   { id: "lock", label: "Subject Lock", icon: Target },
   { id: "narratives", label: "Narratives", icon: Radar },
+  { id: "assistant", label: "Ops Agent", icon: Bot },
 ];
 
 export default function App() {
@@ -54,9 +58,11 @@ export default function App() {
           {tab === "cameras" && <Cameras {...shared} />}
           {tab === "ledger" && <Ledger {...shared} />}
           {tab === "anomalies" && <Anomalies {...shared} />}
+          {tab === "rules" && <Rules {...shared} />}
           {tab === "identities" && <Identities {...shared} />}
           {tab === "lock" && <SubjectLock {...shared} />}
           {tab === "narratives" && <Narratives {...shared} />}
+          {tab === "assistant" && <Assistant {...shared} />}
         </main>
       </div>
     </div>

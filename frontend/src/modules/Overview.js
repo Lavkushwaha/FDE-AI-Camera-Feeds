@@ -31,7 +31,7 @@ export default function Overview({ metrics, setTab, cadence }) {
 
   return (
     <div className="space-y-6" data-testid="overview-panel">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h2 className="text-heading text-2xl font-bold uppercase tracking-tight">Command Overview</h2>
           <p className="text-slate-500 text-xs font-mono uppercase tracking-widest">operator situational awareness · window: {cadence}</p>
@@ -39,6 +39,27 @@ export default function Overview({ metrics, setTab, cadence }) {
         <button className="btn btn-primary" onClick={genNarrative} disabled={narrLoading} data-testid="generate-narrative-btn">
           <Zap size={14} /> {narrLoading ? "Generating…" : "AI Briefing"}
         </button>
+      </div>
+
+      <div className="panel p-4 hud-corners" data-testid="core-engine-banner">
+        <div className="flex items-start gap-3">
+          <div className="w-10 h-10 border border-tcyan/40 bg-tcyan/10 flex items-center justify-center text-tcyan">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M12 2 L2 7 L12 12 L22 7 Z"/><path d="M2 17 L12 22 L22 17"/><path d="M2 12 L12 17 L22 12"/></svg>
+          </div>
+          <div className="flex-1">
+            <div className="text-heading uppercase text-slate-100 font-semibold tracking-tight">VIC · domain-agnostic vision core engine</div>
+            <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+              Everything downstream is <span className="text-tcyan">config-driven</span>: define your own anomaly rules, plug any vocabulary, activate a Subject Lock, and let the Ops Agent read the ledger + take actions on your behalf. The LLM only processes data you ask it to — never on its own.
+            </p>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              <span className="badge border-subtle text-slate-400">YOLOv8n + ByteTrack</span>
+              <span className="badge border-subtle text-slate-400">InsightFace</span>
+              <span className="badge border-subtle text-slate-400">Rule Studio</span>
+              <span className="badge border-subtle text-slate-400">Subject Lock</span>
+              <span className="badge border-subtle text-slate-400">Tool-using Ops Agent</span>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
