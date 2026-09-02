@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { vic, MEDIA } from "../api";
-import { Target, X, ScanSearch } from "lucide-react";
+import { Target, X, ScanSearch, Sparkles, Siren, Film as FilmIcon } from "lucide-react";
 
 export default function SubjectLock() {
   const [locks, setLocks] = useState([]);
@@ -10,7 +10,9 @@ export default function SubjectLock() {
   const [label, setLabel] = useState("");
   const [active, setActive] = useState(null);
   const [sweep, setSweep] = useState(null);
+  const [insights, setInsights] = useState([]);
   const [busy, setBusy] = useState(false);
+  const [aiBusy, setAiBusy] = useState(false);
 
   const load = async () => {
     setLocks(await vic.locks());
@@ -18,23 +20,32 @@ export default function SubjectLock() {
   };
   useEffect(() => { load(); }, []);
 
+  const openLock = async (l) => {
+    setActive(l);
+    setBusy(true);
+    try {
+      setSweep(await vic.sweep(l.id, 1440));
+      setInsights(await vic.lockInsights(l.id));
+    } finally { setBusy(false); }
+  };
+
   const create = async () => {
     if (!target) return;
     setBusy(true);
     try {
       const l = await vic.createLock({ kind, target, label });
-      setActive(l);
-      const s = await vic.sweep(l.id, 1440);
-      setSweep(s);
-      load();
+      await load();
+      await openLock(l);
     } finally { setBusy(false); }
   };
 
-  const openLock = async (l) => {
-    setActive(l);
-    setBusy(true);
-    try { setSweep(await vic.sweep(l.id, 1440)); }
-    finally { setBusy(false); }
+  const runInsight = async (mode) => {
+    if (!active) return;
+    setAiBusy(true);
+    try {
+      const r = await vic.lockInsight(active.id, mode, 1440);
+      setInsights([r, ...insights]);
+    } finally { setAiBusy(false); }
   };
 
   return (
@@ -117,7 +128,30 @@ export default function SubjectLock() {
                   <StatBig label="Cameras" value={sweep?.journey?.length ?? 0}/>
                   <StatBig label="Window" value="24h"/>
                 </div>
+                <div className="mt-3 flex gap-2 flex-wrap">
+                  <button className="btn btn-primary" onClick={()=>runInsight("insight")} disabled={aiBusy || !sweep} data-testid="lock-insight-btn"><Sparkles size={14}/> AI Insight</button>
+                  <button className="btn" onClick={()=>runInsight("alert")} disabled={aiBusy || !sweep} data-testid="lock-alert-btn"><Siren size={14}/> Generate Alert</button>
+                  <button className="btn" onClick={()=>runInsight("narrate")} disabled={aiBusy || !sweep} data-testid="lock-narrate-btn"><FilmIcon size={14}/> Cinematic Narration</button>
+                  {aiBusy && <span className="text-[10px] font-mono uppercase tracking-widest text-tcyan self-center">LLM working…</span>}
+                </div>
               </div>
+
+              {insights.length > 0 && (
+                <div className="panel p-4">
+                  <div className="text-heading uppercase text-slate-200 font-semibold tracking-tight border-b border-subtle pb-2">AI briefings for this lock</div>
+                  <div className="mt-3 space-y-3" data-testid="lock-insights-list">
+                    {insights.map(i => (
+                      <div key={i.id} className={`card p-3 ${i.mode==="alert" ? "border-tcrimson/40" : i.mode==="narrate" ? "border-tamber/40" : "border-tcyan/40"}`} data-testid={`insight-${i.id}`}>
+                        <div className="flex items-center gap-2 text-[10px] font-mono uppercase tracking-widest">
+                          <span className={i.mode==="alert" ? "text-tcrimson" : i.mode==="narrate" ? "text-tamber" : "text-tcyan"}>{i.mode}</span>
+                          <span className="text-slate-500">{new Date(i.generated_at).toLocaleTimeString()}</span>
+                        </div>
+                        <p className="mt-1 text-sm text-slate-100 whitespace-pre-wrap">{i.insight}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {sweep?.journey?.length > 0 && (
                 <div className="panel p-4">

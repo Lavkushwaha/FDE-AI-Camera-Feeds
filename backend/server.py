@@ -542,96 +542,229 @@ async def export_ledger(
     )
 
 
-# ---------- Anomaly Engine ---------------------------------------------------
-async def _scan_anomalies(camera_id: str, minutes: int = 10) -> list[dict]:
-    """Real rules: capture_gap (frames_seen < 50% expected), spike/drought via
-    z-score vs previous window, and new_class (first sighting)."""
-    since = datetime.now(timezone.utc) - timedelta(minutes=minutes)
-    since_iso = since.isoformat()
+# ---------- Anomaly Engine — user-defined rules ------------------------------
+# Rule schema (all fields optional except id/name/type):
+#   type = "capture_gap" | "class_threshold" | "class_absence" | "class_new" |
+#          "class_spike" | "face_match" | "zone_presence"
+#   predicate: {
+#     label?:  str,             # class filter (class_* + zone_presence)
+#     min_count?: int,          # class_threshold  (fire if count >= min_count)
+#     max_count?: int,          # class_threshold  (fire if count <= max_count)
+#     spike_ratio?: float,      # class_spike       (curr >= baseline*ratio)
+#     spike_min_baseline?: int, # class_spike       (guard against noise)
+#     minutes?: int,            # window length (default 10)
+#     baseline_minutes?: int,   # class_spike/absence baseline window
+#     min_frames_ratio?: float, # capture_gap  (frames < expected*ratio)
+#     min_similarity?: float,   # face_match  minimum similarity
+#     identity_id?: str,        # face_match  restrict to identity
+#     zone_id?: str,            # zone_presence
+#   }
+#   scope: {"all": true} OR {"camera_ids": [...]}
+#   severity: info|warning|critical
+#   enabled: bool
 
-    # Capture gap
-    frames_seen = await db.detection_events.count_documents(
-        {"camera_id": camera_id, "detected_at": {"$gte": since_iso}}
-    )
-    # Latest frame in the window (used for purge-exemption)
-    latest = await db.detection_events.find_one(
-        {"camera_id": camera_id, "detected_at": {"$gte": since_iso}},
-        sort=[("detected_at", -1)],
-    )
-    latest_ref = (latest or {}).get("frame_ref")
+DEFAULT_RULES = [
+    {"name": "Capture Gap",         "type": "capture_gap",     "severity": "warning",
+     "predicate": {"minutes": 10, "min_frames_ratio": 0.5},
+     "description": "Fewer than half the expected frames captured — camera may be lagging"},
+    {"name": "Person Spike",        "type": "class_spike",     "severity": "critical",
+     "predicate": {"label": "person", "spike_ratio": 3.0, "spike_min_baseline": 5,
+                   "minutes": 10, "baseline_minutes": 10},
+     "description": "Person count spiked 3× vs prior window"},
+    {"name": "Class Drought",       "type": "class_absence",   "severity": "warning",
+     "predicate": {"minutes": 10, "baseline_minutes": 10, "spike_min_baseline": 10},
+     "description": "A class previously seen has gone missing"},
+    {"name": "New Class",           "type": "class_new",       "severity": "info",
+     "predicate": {"minutes": 10},
+     "description": "A class never before observed on this camera has appeared"},
+    {"name": "Watchlist Match",     "type": "face_match",      "severity": "critical",
+     "predicate": {"minutes": 10, "min_similarity": 0.45},
+     "description": "A watchlisted identity was seen"},
+]
 
-    expected = minutes * 60
+
+async def _seed_default_rules():
+    """Idempotent — seed the 5 defaults once so operators have something to edit."""
+    if await db.anomaly_rules.count_documents({}) > 0:
+        return
+    for r in DEFAULT_RULES:
+        await db.anomaly_rules.insert_one({
+            "id": new_id(),
+            "enabled": True,
+            "scope": {"all": True},
+            "created_at": now_iso(),
+            "system_default": True,
+            **r,
+        })
+
+
+def _in_scope(rule: dict, camera_id: str) -> bool:
+    s = rule.get("scope") or {"all": True}
+    if s.get("all"):
+        return True
+    return camera_id in (s.get("camera_ids") or [])
+
+
+async def _run_rule(rule: dict, camera_id: str) -> list[dict]:
+    """Evaluate one rule for one camera → return list of created anomalies."""
+    if not rule.get("enabled", True) or not _in_scope(rule, camera_id):
+        return []
+    p = rule.get("predicate") or {}
+    minutes = int(p.get("minutes", 10))
+    since = (datetime.now(timezone.utc) - timedelta(minutes=minutes)).isoformat()
+    baseline_min = int(p.get("baseline_minutes", minutes))
+    prior_since = (datetime.now(timezone.utc) - timedelta(minutes=minutes + baseline_min)).isoformat()
+
     created: list[dict] = []
-    if expected > 0 and frames_seen < expected * 0.5 and frames_seen > 0:
-        a = {
-            "id": new_id(), "camera_id": camera_id, "type": "capture_gap",
-            "severity": "warning", "opened_at": now_iso(), "status": "open",
-            "facts": {"frames_seen": frames_seen, "frames_expected": expected,
-                      "window_min": minutes, "frame_ref": latest_ref},
-            "note": f"Only {frames_seen}/{expected} frames captured in last {minutes}m",
-        }
-        await db.anomalies.insert_one(a)
-        created.append(clean(a))
+    kind = rule["type"]
+    fresh = lambda: {
+        "id": new_id(), "camera_id": camera_id, "type": kind,
+        "rule_id": rule["id"], "rule_name": rule["name"],
+        "severity": rule.get("severity", "info"),
+        "opened_at": now_iso(), "status": "open",
+    }
 
-    # Class distribution current window
-    pipeline = [
-        {"$match": {"camera_id": camera_id, "detected_at": {"$gte": since_iso}}},
-        {"$unwind": "$objects"},
-        {"$group": {"_id": "$objects.label", "count": {"$sum": 1}}},
-    ]
-    curr = {row["_id"]: row["count"] async for row in db.detection_events.aggregate(pipeline)}
-
-    # Prior window (equal length) for z-score baseline
-    prior_since = (since - timedelta(minutes=minutes)).isoformat()
-    prior_pipeline = [
-        {"$match": {"camera_id": camera_id, "detected_at": {"$gte": prior_since, "$lt": since_iso}}},
-        {"$unwind": "$objects"},
-        {"$group": {"_id": "$objects.label", "count": {"$sum": 1}}},
-    ]
-    prior = {row["_id"]: row["count"] async for row in db.detection_events.aggregate(prior_pipeline)}
-
-    for label, count in curr.items():
-        base = prior.get(label, 0)
-        # Simple: 3x baseline = spike, 0 vs healthy baseline = drought handled below
-        if base >= 5 and count >= base * 3:
-            a = {
-                "id": new_id(), "camera_id": camera_id, "type": "spike",
-                "severity": "critical", "opened_at": now_iso(), "status": "open",
-                "facts": {"label": label, "count": count, "baseline": base, "ratio": round(count/max(1,base),2)},
-                "note": f"'{label}' detections spiked {count} vs baseline {base}",
+    if kind == "capture_gap":
+        frames = await db.detection_events.count_documents(
+            {"camera_id": camera_id, "detected_at": {"$gte": since}}
+        )
+        expected = minutes * 60
+        ratio = float(p.get("min_frames_ratio", 0.5))
+        if expected > 0 and 0 < frames < expected * ratio:
+            latest = await db.detection_events.find_one(
+                {"camera_id": camera_id, "detected_at": {"$gte": since}},
+                sort=[("detected_at", -1)],
+            )
+            a = fresh() | {
+                "facts": {"frames_seen": frames, "frames_expected": expected,
+                          "window_min": minutes, "frame_ref": (latest or {}).get("frame_ref")},
+                "note": f"{rule['name']}: {frames}/{expected} frames in {minutes}m",
             }
-            await db.anomalies.insert_one(a)
+            await db.anomalies.insert_one(dict(a))
             created.append(clean(a))
 
-    for label, base in prior.items():
-        count = curr.get(label, 0)
-        if base >= 10 and count == 0:
-            a = {
-                "id": new_id(), "camera_id": camera_id, "type": "drought",
-                "severity": "warning", "opened_at": now_iso(), "status": "open",
-                "facts": {"label": label, "baseline": base},
-                "note": f"'{label}' vanished (was {base} last window)",
+    elif kind == "class_threshold":
+        label = p.get("label")
+        if not label: return []
+        pipeline = [{"$match": {"camera_id": camera_id, "detected_at": {"$gte": since}}},
+                    {"$unwind": "$objects"}, {"$match": {"objects.label": label}},
+                    {"$count": "n"}]
+        agg = await db.detection_events.aggregate(pipeline).to_list(1)
+        n = agg[0]["n"] if agg else 0
+        hit = False
+        if "min_count" in p and n >= int(p["min_count"]): hit = True
+        if "max_count" in p and n <= int(p["max_count"]): hit = True
+        if hit:
+            a = fresh() | {
+                "facts": {"label": label, "count": n, "predicate": p},
+                "note": f"{rule['name']}: {label} count={n}",
             }
-            await db.anomalies.insert_one(a)
+            await db.anomalies.insert_one(dict(a))
             created.append(clean(a))
 
-    # New class (never before seen on this camera)
-    ever = await db.detection_events.aggregate([
-        {"$match": {"camera_id": camera_id, "detected_at": {"$lt": since_iso}}},
-        {"$unwind": "$objects"}, {"$group": {"_id": "$objects.label"}},
-    ]).to_list(500)
-    ever_set = {r["_id"] for r in ever}
-    for label in curr:
-        if label not in ever_set and label is not None:
-            a = {
-                "id": new_id(), "camera_id": camera_id, "type": "new_class",
-                "severity": "info", "opened_at": now_iso(), "status": "open",
-                "facts": {"label": label, "count": curr[label]},
-                "note": f"first sighting of '{label}' on this camera",
+    elif kind == "class_spike":
+        label = p.get("label")
+        curr_q = [{"$match": {"camera_id": camera_id, "detected_at": {"$gte": since}}},
+                  {"$unwind": "$objects"}]
+        if label: curr_q.append({"$match": {"objects.label": label}})
+        curr_q.append({"$group": {"_id": "$objects.label", "count": {"$sum": 1}}})
+        curr = {r["_id"]: r["count"] async for r in db.detection_events.aggregate(curr_q)}
+
+        prior_q = [{"$match": {"camera_id": camera_id, "detected_at": {"$gte": prior_since, "$lt": since}}},
+                   {"$unwind": "$objects"}]
+        if label: prior_q.append({"$match": {"objects.label": label}})
+        prior_q.append({"$group": {"_id": "$objects.label", "count": {"$sum": 1}}})
+        prior = {r["_id"]: r["count"] async for r in db.detection_events.aggregate(prior_q)}
+
+        ratio = float(p.get("spike_ratio", 3.0))
+        floor = int(p.get("spike_min_baseline", 5))
+        for lb, cnt in curr.items():
+            base = prior.get(lb, 0)
+            if base >= floor and cnt >= base * ratio:
+                a = fresh() | {
+                    "facts": {"label": lb, "count": cnt, "baseline": base,
+                              "ratio": round(cnt / max(1, base), 2)},
+                    "note": f"{rule['name']}: {lb} {cnt} vs baseline {base}",
+                }
+                await db.anomalies.insert_one(dict(a))
+                created.append(clean(a))
+
+    elif kind == "class_absence":
+        prior_q = [{"$match": {"camera_id": camera_id, "detected_at": {"$gte": prior_since, "$lt": since}}},
+                   {"$unwind": "$objects"},
+                   {"$group": {"_id": "$objects.label", "count": {"$sum": 1}}}]
+        prior = {r["_id"]: r["count"] async for r in db.detection_events.aggregate(prior_q)}
+        curr_q = [{"$match": {"camera_id": camera_id, "detected_at": {"$gte": since}}},
+                  {"$unwind": "$objects"}, {"$group": {"_id": "$objects.label", "count": {"$sum": 1}}}]
+        curr = {r["_id"]: r["count"] async for r in db.detection_events.aggregate(curr_q)}
+        floor = int(p.get("spike_min_baseline", 10))
+        for lb, base in prior.items():
+            if base >= floor and curr.get(lb, 0) == 0:
+                a = fresh() | {
+                    "facts": {"label": lb, "baseline": base},
+                    "note": f"{rule['name']}: {lb} vanished (was {base})",
+                }
+                await db.anomalies.insert_one(dict(a))
+                created.append(clean(a))
+
+    elif kind == "class_new":
+        curr_q = [{"$match": {"camera_id": camera_id, "detected_at": {"$gte": since}}},
+                  {"$unwind": "$objects"}, {"$group": {"_id": "$objects.label", "count": {"$sum": 1}}}]
+        curr = {r["_id"]: r["count"] async for r in db.detection_events.aggregate(curr_q)}
+        ever = await db.detection_events.aggregate([
+            {"$match": {"camera_id": camera_id, "detected_at": {"$lt": since}}},
+            {"$unwind": "$objects"}, {"$group": {"_id": "$objects.label"}},
+        ]).to_list(500)
+        ever_set = {r["_id"] for r in ever}
+        for lb, cnt in curr.items():
+            if lb and lb not in ever_set:
+                a = fresh() | {
+                    "facts": {"label": lb, "count": cnt},
+                    "note": f"{rule['name']}: first sighting of '{lb}'",
+                }
+                await db.anomalies.insert_one(dict(a))
+                created.append(clean(a))
+
+    elif kind == "face_match":
+        q: dict = {"camera_id": camera_id, "detected_at": {"$gte": since}}
+        if p.get("identity_id"):
+            q["identity_id"] = p["identity_id"]
+        if p.get("min_similarity") is not None:
+            q["similarity"] = {"$gte": float(p["min_similarity"])}
+        matches = [clean(m) async for m in db.match_events.find(q).sort("detected_at", -1).limit(50)]
+        # coalesce: 1 anomaly per identity per window (idempotency)
+        seen: set[str] = set()
+        for m in matches:
+            iid = m.get("identity_id")
+            if iid in seen: continue
+            seen.add(iid)
+            # skip if already open anomaly for same rule+identity in this window
+            exists = await db.anomalies.find_one({
+                "rule_id": rule["id"], "camera_id": camera_id,
+                "facts.identity_id": iid, "status": {"$in": ["open", "acknowledged"]},
+                "opened_at": {"$gte": since},
+            })
+            if exists:
+                continue
+            a = fresh() | {
+                "facts": {"identity_id": iid, "name": m.get("name"),
+                          "similarity": m.get("similarity"), "frame_ref": m.get("frame_ref")},
+                "note": f"{rule['name']}: {m.get('name')} matched ({round(m.get('similarity',0)*100)}%)",
             }
-            await db.anomalies.insert_one(a)
+            await db.anomalies.insert_one(dict(a))
             created.append(clean(a))
 
+    return created
+
+
+async def _scan_anomalies(camera_id: str, minutes: int = 10) -> list[dict]:
+    """Run every enabled rule against a camera window."""
+    await _seed_default_rules()
+    rules = [clean(r) async for r in db.anomaly_rules.find({"enabled": True})]
+    created: list[dict] = []
+    for rule in rules:
+        # Rule-level minutes override the caller's default so predicate is authoritative
+        created.extend(await _run_rule(rule, camera_id))
     return created
 
 
@@ -669,6 +802,71 @@ async def resolve_anomaly(aid: str, payload: AnomalyLifecycle):
     if not r.matched_count:
         raise HTTPException(404, "anomaly not found")
     return {"ok": True}
+
+
+# ---------- Anomaly RULES (user-defined) -------------------------------------
+class AnomalyRule(BaseModel):
+    name: str
+    type: str  # capture_gap | class_threshold | class_absence | class_new | class_spike | face_match
+    description: str = ""
+    predicate: dict = Field(default_factory=dict)
+    scope: dict = Field(default_factory=lambda: {"all": True})
+    severity: str = "warning"
+    enabled: bool = True
+
+
+@app.get("/api/anomaly-rules")
+async def list_rules():
+    await _seed_default_rules()
+    return [clean(r) async for r in db.anomaly_rules.find().sort("created_at", -1)]
+
+
+@app.post("/api/anomaly-rules")
+async def create_rule(payload: AnomalyRule):
+    doc = payload.model_dump()
+    doc.update({"id": new_id(), "created_at": now_iso(), "system_default": False})
+    await db.anomaly_rules.insert_one(doc)
+    return clean(doc)
+
+
+@app.put("/api/anomaly-rules/{rid}")
+async def update_rule(rid: str, payload: AnomalyRule):
+    r = await db.anomaly_rules.update_one({"id": rid}, {"$set": payload.model_dump()})
+    if not r.matched_count:
+        raise HTTPException(404, "rule not found")
+    return {"ok": True}
+
+
+@app.post("/api/anomaly-rules/{rid}/toggle")
+async def toggle_rule(rid: str):
+    r = await db.anomaly_rules.find_one({"id": rid})
+    if not r:
+        raise HTTPException(404, "rule not found")
+    await db.anomaly_rules.update_one({"id": rid}, {"$set": {"enabled": not r.get("enabled", True)}})
+    return {"ok": True, "enabled": not r.get("enabled", True)}
+
+
+@app.delete("/api/anomaly-rules/{rid}")
+async def delete_rule(rid: str):
+    r = await db.anomaly_rules.delete_one({"id": rid})
+    return {"deleted": r.deleted_count}
+
+
+@app.post("/api/anomaly-rules/{rid}/test")
+async def test_rule(rid: str, camera_id: str):
+    """Preview how many anomalies this rule WOULD create right now — without persisting."""
+    rule = await db.anomaly_rules.find_one({"id": rid})
+    if not rule:
+        raise HTTPException(404, "rule not found")
+    rule = clean(rule)
+    # We'll run and immediately rollback: mark anomalies as preview then delete
+    before = await db.anomalies.count_documents({})
+    created = await _run_rule(rule, camera_id)
+    # revert
+    if created:
+        await db.anomalies.delete_many({"id": {"$in": [c["id"] for c in created]}})
+    after = await db.anomalies.count_documents({})
+    return {"preview_count": len(created), "before": before, "after": after, "preview": created}
 
 
 # ---------- Face Identity / Watchlist ----------------------------------------
@@ -867,6 +1065,145 @@ async def narrative(payload: NarrativeRequest):
 @app.get("/api/narratives")
 async def list_narratives(limit: int = 20):
     return [clean(n) async for n in db.narratives.find().sort("generated_at", -1).limit(limit)]
+
+
+# ---------- Frame timeline for live-track scrubber ---------------------------
+@app.get("/api/cameras/{cid}/frames")
+async def camera_frames(cid: str, limit: int = 200, since_minutes: int = 60):
+    """Ordered frames for playback / scrubber, oldest → newest, thinned for UI."""
+    since = (datetime.now(timezone.utc) - timedelta(minutes=since_minutes)).isoformat()
+    rows = [clean(r) async for r in db.detection_events.find(
+        {"camera_id": cid, "detected_at": {"$gte": since}},
+    ).sort("detected_at", 1).limit(limit)]
+    # trim payload — keep bboxes but drop face embeddings (already stripped)
+    for r in rows:
+        r.pop("pack", None)
+    return {"camera_id": cid, "count": len(rows), "frames": rows}
+
+
+# ---------- Factsheet with SUBJECT-LOCK overlay ------------------------------
+@app.get("/api/ledger/factsheet_with_locks")
+async def factsheet_with_locks(camera_id: Optional[str] = None, minutes: int = 10):
+    """Standard factsheet + intersection with every active Subject Lock (per user ask)."""
+    if camera_id:
+        base = await factsheet(camera_id, minutes)
+    else:
+        since = (datetime.now(timezone.utc) - timedelta(minutes=minutes)).isoformat()
+        rows = [clean(r) async for r in db.detection_events.find({"detected_at": {"$gte": since}}).limit(1000)]
+        counts: dict[str, int] = {}
+        for r in rows:
+            for o in r.get("objects", []):
+                counts[o["label"]] = counts.get(o["label"], 0) + 1
+        base = {
+            "scope": "all_cameras",
+            "window": {"minutes": minutes, "to": now_iso()},
+            "frames_seen": len(rows),
+            "detections_per_class": [{"label": k, "detections": v} for k, v in sorted(counts.items(), key=lambda x: -x[1])],
+        }
+
+    active_locks = [clean(l) async for l in db.locks.find({"status": "active"})]
+    lock_hits = []
+    since_iso = (datetime.now(timezone.utc) - timedelta(minutes=minutes)).isoformat()
+    for lock in active_locks:
+        if lock["kind"] == "face":
+            q = {"identity_id": lock["target"], "detected_at": {"$gte": since_iso}}
+            if camera_id: q["camera_id"] = camera_id
+            n = await db.match_events.count_documents(q)
+        elif lock["kind"] == "class":
+            q = {"objects.label": lock["target"], "detected_at": {"$gte": since_iso}}
+            if camera_id: q["camera_id"] = camera_id
+            n = await db.detection_events.count_documents(q)
+        else:
+            n = 0
+        lock_hits.append({
+            "lock_id": lock["id"], "kind": lock["kind"],
+            "target": lock["target"], "label": lock.get("label", ""),
+            "hits_in_window": n,
+        })
+    base["subject_locks"] = lock_hits
+    return base
+
+
+# ---------- Subject-Lock AI insights (LLM narration on demand) ---------------
+class LockInsightRequest(BaseModel):
+    mode: str = "insight"  # insight | alert | narrate
+    window_minutes: int = 1440
+
+
+@app.post("/api/locks/{lid}/insights")
+async def lock_insights(lid: str, payload: LockInsightRequest):
+    sweep = await sweep_lock(lid, payload.window_minutes)
+    if payload.mode == "alert" and sweep["count"] == 0:
+        return {"insight": "No sightings — nothing to alert on.", "sweep_summary": {"count": 0}, "mode": payload.mode}
+
+    hint = {
+        "insight":  "Write a 3–4 sentence investigator briefing on the target's cross-camera behaviour, cite exact camera counts and first→last times. Recommend one next investigative step.",
+        "alert":    "Write a 2-sentence urgent operator ALERT. Start with severity tag [CRITICAL]/[WARNING]. Include exact camera IDs and time window.",
+        "narrate":  "Write a cinematic present-tense narration (5 sentences max) reconstructing the subject's journey — ground every claim in the timeline data.",
+    }.get(payload.mode, "Write a briefing.")
+
+    facts = {
+        "lock": sweep["lock"],
+        "count": sweep["count"],
+        "journey": sweep["journey"],
+        "first_sighting": sweep["sightings"][0] if sweep["sightings"] else None,
+        "last_sighting":  sweep["sightings"][-1] if sweep["sightings"] else None,
+        "sightings_sample": sweep["sightings"][:8],
+    }
+
+    if not EMERGENT_LLM_KEY:
+        text = f"[template] {sweep['count']} sightings across {len(sweep['journey'])} cameras."
+    else:
+        try:
+            chat = LlmChat(
+                api_key=EMERGENT_LLM_KEY,
+                session_id=f"vic-lock-{lid[:8]}-{payload.mode}",
+                system_message="You are the VIC Investigation Analyst. Never invent facts. Only cite numbers present in the JSON.",
+            ).with_model("openai", "gpt-5.4")
+            reply = await chat.send_message(UserMessage(text=f"{hint}\n\nDATA:\n{json.dumps(facts, indent=2)}"))
+            text = reply if isinstance(reply, str) else str(reply)
+        except Exception as e:
+            text = f"[LLM error] {sweep['count']} sightings — {e}"
+
+    doc = {
+        "id": new_id(), "lock_id": lid, "mode": payload.mode,
+        "insight": text, "generated_at": now_iso(),
+        "sweep_summary": {"count": sweep["count"], "journey": sweep["journey"]},
+    }
+    await db.lock_insights.insert_one(dict(doc))
+    return clean(doc)
+
+
+@app.get("/api/locks/{lid}/insights")
+async def list_lock_insights(lid: str, limit: int = 20):
+    return [clean(x) async for x in db.lock_insights.find({"lock_id": lid}).sort("generated_at", -1).limit(limit)]
+
+
+# ---------- VIC Ops Agent (tool-using LangGraph-style harness) --------------
+class ChatRequest(BaseModel):
+    message: str
+    session_id: Optional[str] = None
+    max_steps: int = 6
+
+
+@app.post("/api/chat")
+async def chat(payload: ChatRequest):
+    if not EMERGENT_LLM_KEY:
+        return {"final": "LLM key not configured — agent disabled.", "steps": [], "session_id": payload.session_id}
+    from ops_agent import run_agent
+    result = await run_agent(payload.message, payload.session_id or new_id(),
+                             db, EMERGENT_LLM_KEY, max_steps=payload.max_steps)
+    await db.chat_messages.insert_one({
+        "id": new_id(), "session_id": result["session_id"],
+        "user": payload.message, "assistant": result["final"],
+        "steps": result["steps"], "ts": now_iso(),
+    })
+    return result
+
+
+@app.get("/api/chat/{session_id}")
+async def chat_history(session_id: str, limit: int = 50):
+    return [clean(m) async for m in db.chat_messages.find({"session_id": session_id}).sort("ts", 1).limit(limit)]
 
 
 # ---------- Metrics / Observability ------------------------------------------

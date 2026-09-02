@@ -1,13 +1,21 @@
 import React, { useEffect, useRef, useState } from "react";
 import { vic, MEDIA } from "../api";
-import { Plus, Upload, Trash2, Play, Pencil, X, RefreshCw } from "lucide-react";
+import { Plus, Upload, Trash2, Play, Pause, Pencil, X, RefreshCw, Eye, EyeOff, Film, Images, ChevronLeft, ChevronRight } from "lucide-react";
 
 export default function Cameras({ pack }) {
   const [cams, setCams] = useState([]);
   const [showAdd, setShowAdd] = useState(false);
-  const [selected, setSelected] = useState(null); // {id,name}
   const [zoneEditor, setZoneEditor] = useState(null); // camera
   const [uploadTarget, setUploadTarget] = useState(null);
+  const [scrubTarget, setScrubTarget] = useState(null);
+  const [frameTarget, setFrameTarget] = useState(null);
+  const [overlayState, setOverlayState] = useState(() => JSON.parse(localStorage.getItem("vic-overlays") || "{}"));
+
+  const setOverlay = (cid, v) => {
+    const next = { ...overlayState, [cid]: v };
+    setOverlayState(next);
+    localStorage.setItem("vic-overlays", JSON.stringify(next));
+  };
 
   const load = () => vic.cameras().then(setCams);
   useEffect(() => { load(); const t = setInterval(load, 5000); return () => clearInterval(t); }, []);
@@ -19,7 +27,7 @@ export default function Cameras({ pack }) {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-heading text-2xl font-bold uppercase tracking-tight">Camera Grid</h2>
-          <p className="text-xs text-slate-500 font-mono uppercase tracking-widest">{cams.length} cameras · pack: {pack}</p>
+          <p className="text-xs text-slate-500 font-mono uppercase tracking-widest">{cams.length} cameras · pack: {pack} · YOLO overlay per-camera</p>
         </div>
         <div className="flex gap-2">
           <button className="btn" onClick={seed} data-testid="seed-sample-btn"><RefreshCw size={14} /> Seed sample</button>
@@ -35,10 +43,15 @@ export default function Cameras({ pack }) {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4" data-testid="camera-grid">
           {cams.map(c => (
-            <CameraCard key={c.id} cam={c} onSelect={setSelected}
+            <CameraCard key={c.id} cam={c}
+              overlay={overlayState[c.id] !== false}
+              onToggleOverlay={() => setOverlay(c.id, !(overlayState[c.id] !== false))}
               onDelete={async () => { await vic.deleteCamera(c.id); load(); }}
               onZones={() => setZoneEditor(c)}
-              onUpload={() => setUploadTarget(c)} />
+              onUpload={() => setUploadTarget(c)}
+              onScrub={() => setScrubTarget(c)}
+              onFrames={() => setFrameTarget(c)}
+            />
           ))}
         </div>
       )}
@@ -46,11 +59,13 @@ export default function Cameras({ pack }) {
       {showAdd && <AddCameraModal pack={pack} onClose={() => setShowAdd(false)} onCreated={() => { setShowAdd(false); load(); }} />}
       {zoneEditor && <ZoneEditorModal camera={zoneEditor} onClose={() => setZoneEditor(null)} onSaved={load} />}
       {uploadTarget && <UploadVideoModal camera={uploadTarget} onClose={() => setUploadTarget(null)} onDone={load} />}
+      {scrubTarget && <TrackScrubberModal camera={scrubTarget} onClose={() => setScrubTarget(null)} />}
+      {frameTarget && <FrameBrowserModal camera={frameTarget} onClose={() => setFrameTarget(null)} />}
     </div>
   );
 }
 
-function CameraCard({ cam, onDelete, onZones, onUpload }) {
+function CameraCard({ cam, overlay, onToggleOverlay, onDelete, onZones, onUpload, onScrub, onFrames }) {
   const [latest, setLatest] = useState(null);
   useEffect(() => {
     let alive = true;
@@ -73,8 +88,8 @@ function CameraCard({ cam, onDelete, onZones, onUpload }) {
       <div className="relative aspect-video bg-black border border-subtle overflow-hidden hud-scanlines">
         {latest?.frame_ref ? (
           <>
-            <img src={MEDIA(latest.frame_ref)} className="absolute inset-0 w-full h-full object-cover" alt="" />
-            <YoloOverlay objects={latest.objects} faces={latest.faces} />
+            <img src={MEDIA(latest.frame_ref)} className="absolute inset-0 w-full h-full object-cover" alt="latest frame" />
+            {overlay && <YoloOverlay objects={latest.objects} faces={latest.faces} />}
           </>
         ) : (
           <div className="absolute inset-0 flex items-center justify-center text-slate-600 text-xs font-mono uppercase tracking-widest">no frames · upload video</div>
@@ -85,11 +100,21 @@ function CameraCard({ cam, onDelete, onZones, onUpload }) {
             {latest.objects?.length || 0} obj · {latest.faces?.length || 0} face
           </div>
         )}
+        <button
+          onClick={onToggleOverlay}
+          data-testid={`overlay-toggle-${cam.id}`}
+          title={overlay ? "hide YOLO overlay" : "show YOLO overlay"}
+          className={`absolute bottom-1 left-1 px-2 py-0.5 text-[9px] font-mono uppercase tracking-widest border ${overlay ? "border-tcyan/60 bg-tcyan/10 text-tcyan" : "border-slate-600/50 bg-black/60 text-slate-400"}`}
+        >
+          {overlay ? <><Eye size={10} className="inline mr-1"/>YOLO</> : <><EyeOff size={10} className="inline mr-1"/>YOLO</>}
+        </button>
       </div>
 
       <div className="mt-2 flex items-center gap-1">
         <button className="btn flex-1" onClick={onUpload} data-testid={`upload-video-${cam.id}`}><Upload size={12}/> Upload</button>
-        <button className="btn" onClick={onZones} data-testid={`zones-${cam.id}`}><Pencil size={12}/> Zones</button>
+        <button className="btn" onClick={onScrub} data-testid={`scrub-${cam.id}`} title="Live Track Scrubber"><Film size={12}/></button>
+        <button className="btn" onClick={onFrames} data-testid={`frames-${cam.id}`} title="Browse frames"><Images size={12}/></button>
+        <button className="btn" onClick={onZones} data-testid={`zones-${cam.id}`} title="Zones"><Pencil size={12}/></button>
         <button className="btn btn-danger" onClick={onDelete} data-testid={`delete-camera-${cam.id}`}><Trash2 size={12}/></button>
       </div>
     </div>
@@ -133,6 +158,117 @@ function YoloOverlay({ objects = [], faces = [] }) {
         );
       })}
     </svg>
+  );
+}
+
+function TrackScrubberModal({ camera, onClose }) {
+  const [frames, setFrames] = useState([]);
+  const [idx, setIdx] = useState(0);
+  const [playing, setPlaying] = useState(false);
+  const [speed, setSpeed] = useState(500); // ms/frame
+  const [overlay, setOverlay] = useState(true);
+  const [busy, setBusy] = useState(true);
+
+  useEffect(() => {
+    setBusy(true);
+    vic.frames(camera.id, 400, 1440).then(r => {
+      setFrames(r.frames || []);
+      setBusy(false);
+    });
+  }, [camera.id]);
+
+  useEffect(() => {
+    if (!playing || frames.length === 0) return;
+    const t = setInterval(() => setIdx(i => (i + 1 >= frames.length ? 0 : i + 1)), speed);
+    return () => clearInterval(t);
+  }, [playing, frames.length, speed]);
+
+  const cur = frames[idx];
+
+  return (
+    <Modal onClose={onClose} title={`Live Track Scrubber · ${camera.name}`} testid="track-scrubber-modal" wide>
+      <div className="relative aspect-video bg-black border border-subtle overflow-hidden hud-scanlines">
+        {cur?.frame_ref ? (
+          <>
+            <img src={MEDIA(cur.frame_ref)} className="absolute inset-0 w-full h-full object-contain" alt={`frame ${idx}`}/>
+            {overlay && <YoloOverlay objects={cur.objects} faces={cur.faces} />}
+            <div className="absolute top-2 left-2 px-2 py-0.5 bg-black/70 text-[10px] font-mono text-tcyan uppercase tracking-widest">frame {idx+1}/{frames.length}</div>
+            <div className="absolute top-2 right-2 px-2 py-0.5 bg-black/70 text-[10px] font-mono text-tamber uppercase tracking-widest">{new Date(cur.detected_at).toLocaleTimeString()}</div>
+          </>
+        ) : (
+          <div className="absolute inset-0 flex items-center justify-center text-slate-500 text-xs font-mono uppercase tracking-widest">
+            {busy ? "loading frames…" : "no frames on this camera yet"}
+          </div>
+        )}
+      </div>
+
+      <div className="mt-3 flex items-center gap-2">
+        <button className="btn" onClick={()=>setIdx(i => Math.max(0, i-1))} disabled={idx===0} data-testid="scrub-prev"><ChevronLeft size={12}/></button>
+        <button className="btn btn-primary" onClick={()=>setPlaying(p=>!p)} disabled={frames.length===0} data-testid="scrub-play">
+          {playing ? <><Pause size={12}/> Pause</> : <><Play size={12}/> Play</>}
+        </button>
+        <button className="btn" onClick={()=>setIdx(i => Math.min(frames.length-1, i+1))} disabled={idx>=frames.length-1} data-testid="scrub-next"><ChevronRight size={12}/></button>
+        <input
+          type="range" min={0} max={Math.max(0, frames.length - 1)} value={idx}
+          onChange={e=>setIdx(parseInt(e.target.value))} className="flex-1 accent-cyan-500"
+          data-testid="scrub-slider"
+        />
+        <select value={speed} onChange={e=>setSpeed(parseInt(e.target.value))} className="input w-24 text-xs" data-testid="scrub-speed">
+          <option value={1000}>1×</option>
+          <option value={500}>2×</option>
+          <option value={250}>4×</option>
+          <option value={125}>8×</option>
+        </select>
+        <label className="text-[10px] font-mono uppercase tracking-widest text-slate-400 flex items-center gap-1">
+          <input type="checkbox" checked={overlay} onChange={e=>setOverlay(e.target.checked)} data-testid="scrub-overlay-toggle"/> YOLO
+        </label>
+      </div>
+
+      {cur && (
+        <div className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-2 text-[10px] font-mono">
+          <div className="card p-2"><div className="text-slate-500 uppercase tracking-widest">objects</div><div className="text-tcyan text-lg">{cur.objects?.length || 0}</div></div>
+          <div className="card p-2"><div className="text-slate-500 uppercase tracking-widest">faces</div><div className="text-tamber text-lg">{cur.faces?.length || 0}</div></div>
+          <div className="card p-2"><div className="text-slate-500 uppercase tracking-widest">track ids</div><div className="text-tcyan text-lg">{new Set((cur.objects||[]).map(o=>o.track_id).filter(x=>x!=null)).size}</div></div>
+          <div className="card p-2"><div className="text-slate-500 uppercase tracking-widest">matches</div><div className="text-tamber text-lg">{(cur.faces||[]).filter(f=>f.match).length}</div></div>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+function FrameBrowserModal({ camera, onClose }) {
+  const [frames, setFrames] = useState([]);
+  const [sel, setSel] = useState(null);
+  const [overlay, setOverlay] = useState(true);
+  useEffect(() => { vic.frames(camera.id, 240, 1440).then(r => setFrames((r.frames || []).slice().reverse())); }, [camera.id]);
+
+  return (
+    <Modal onClose={onClose} title={`Frame Browser · ${camera.name}`} testid="frame-browser-modal" wide>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+        <div className="lg:col-span-2 relative aspect-video bg-black border border-subtle overflow-hidden">
+          {sel ? (
+            <>
+              <img src={MEDIA(sel.frame_ref)} className="absolute inset-0 w-full h-full object-contain" alt="selected frame"/>
+              {overlay && <YoloOverlay objects={sel.objects} faces={sel.faces} />}
+            </>
+          ) : <div className="absolute inset-0 flex items-center justify-center text-slate-500 text-xs font-mono uppercase tracking-widest">select a thumbnail</div>}
+        </div>
+        <div className="space-y-2 max-h-[70vh] overflow-y-auto pr-1">
+          <label className="text-[10px] font-mono uppercase tracking-widest text-slate-400 flex items-center gap-1">
+            <input type="checkbox" checked={overlay} onChange={e=>setOverlay(e.target.checked)}/> YOLO overlay
+          </label>
+          {frames.length === 0 && <div className="text-slate-600 text-xs font-mono uppercase tracking-widest">no frames yet</div>}
+          {frames.map(f => (
+            <button key={f.id} className={`w-full text-left border ${sel?.id===f.id ? "border-tcyan" : "border-subtle"} bg-card hover:border-tcyan/50`} onClick={()=>setSel(f)} data-testid={`frame-thumb-${f.id}`}>
+              <img src={MEDIA(f.frame_ref)} className="w-full aspect-video object-cover" alt="frame"/>
+              <div className="px-1.5 py-1 text-[10px] font-mono text-slate-400">
+                {new Date(f.detected_at).toLocaleTimeString()} · {f.objects?.length || 0} obj · {f.faces?.length || 0} face
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+    </Modal>
   );
 }
 

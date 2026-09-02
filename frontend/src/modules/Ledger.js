@@ -14,7 +14,8 @@ export default function Ledger() {
   const load = async () => {
     const r = await vic.ledger({ camera_id: cam || undefined, label: label || undefined, limit: 60 });
     setRows(r);
-    if (cam) setFs(await vic.factsheet(cam, 10)); else setFs(null);
+    // fact-sheet always includes Subject Lock hits (per user ask)
+    setFs(await vic.factsheetWithLocks(cam || null, 10));
   };
 
   useEffect(() => { vic.cameras().then(setCams); }, []);
@@ -57,7 +58,7 @@ export default function Ledger() {
         <div className="panel p-4 hud-corners" data-testid="factsheet-panel">
           <div className="flex items-center justify-between">
             <div className="text-heading uppercase text-slate-200 font-semibold tracking-tight">Fact-sheet · last 10m</div>
-            <div className="text-xs font-mono text-slate-500">{fs.frames_seen}/{fs.frames_expected} frames</div>
+            <div className="text-xs font-mono text-slate-500">{fs.frames_seen}/{fs.frames_expected || (fs.window?.minutes||10)*60} frames</div>
           </div>
           <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-2">
             {(fs.detections_per_class || []).map(d => (
@@ -69,6 +70,21 @@ export default function Ledger() {
             ))}
             {(fs.detections_per_class || []).length === 0 && <div className="text-slate-600 text-xs col-span-full font-mono uppercase tracking-widest">no detections in window</div>}
           </div>
+
+          {fs.subject_locks?.length > 0 && (
+            <div className="mt-4 border-t border-subtle pt-3">
+              <div className="text-[10px] font-mono uppercase tracking-widest text-slate-400 mb-2">active subject locks · hits in window</div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2" data-testid="factsheet-locks">
+                {fs.subject_locks.map(l => (
+                  <div key={l.lock_id} className={`card p-2 border ${l.hits_in_window > 0 ? "border-tamber/40" : "border-subtle"}`}>
+                    <div className="text-[10px] font-mono uppercase tracking-widest text-slate-500">{l.kind}</div>
+                    <div className="text-sm font-mono text-slate-100 truncate">{l.label || l.target}</div>
+                    <div className={`text-heading text-lg font-bold ${l.hits_in_window > 0 ? "text-tamber" : "text-slate-600"}`}>{l.hits_in_window} hits</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
