@@ -1,0 +1,23 @@
+{
+  "summary": "First test run for Vision Intelligence Core. Backend: 17/17 pytest tests passed covering health, packs, seed idempotency, camera CRUD + heartbeat + zones, video upload+processing (YOLO+ByteTrack+InsightFace), ledger + factsheet + JSON/CSV export, anomaly scan + ack/resolve lifecycle (capture_gap correctly created), identity enroll+list+delete with photo URL served, subject lock (class kind) with sweep+journey, LLM narrative via gpt-5.4 (real output, not template), and metrics endpoint. Frontend smoke: SPA loaded, all 7 sidebar tabs (nav-overview/cameras/ledger/anomalies/identities/lock/narratives) navigated successfully with zero console/page errors. Dashboard rendered live data (FPM 6, EVENTS 12, ANOM 7, CAM 1/3, IDS 1), recent detections thumbnails via /api/media/frames load correctly, and Narratives tab shows grounded gpt-5.4 briefings citing exact counts.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": ["/app/backend/tests/backend_test.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is ~928 lines — consider splitting into routers (cameras, ledger, anomalies, identities, locks, narrative) for maintainability once feature-complete.",
+    "In `_scan_anomalies` capture_gap facts dict does not include frame_ref; the retention purge routine (`purge`) queries `a.facts.frame_ref` which will never match — retention exemption for open-anomaly frames is effectively a no-op. Not blocking but should be tightened.",
+    "`upload_video` uses `time.time()` for filename plus `written` index; if two uploads happen in same second for same camera the *dest* filename would still be unique (includes filename) but frame filenames use `int(time.time()*1000)` + counter — fine.",
+    "Narrative endpoint catches LLM exceptions and returns 200 with fallback string — good; but the exception `e` includes the raw provider error message which could leak API context. Consider sanitizing.",
+    "`create_camera` accepts arbitrary `pack` string; no validation against DOMAIN_PACKS keys. Passing e.g. `pack='xyz'` silently falls back to 'general' during processing.",
+    "Face embedding vector (512-dim floats) is stored in Mongo per identity — fine at small scale; note this grows quickly with many enrollments."
+  ],
+  "updated_files": ["/app/backend/tests/backend_test.py"],
+  "success_rate": {"backend": "100%", "frontend": "100% (smoke)"},
+  "test_credentials": "N/A (no auth in app)",
+  "seed_data_creation": "POST /api/seed_sample created 2 demo cameras. Tests also created TEST_ prefixed cameras/identity and cleaned them up. One TEST_video_cam remains with processed detections used by other test cases; can be cleaned manually if desired.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend fully green. If retesting, ffmpeg-generated /tmp/demo.mp4 and /tmp/zidane.jpg (from ultralytics) are used. YOLO+InsightFace models are cached under /app/backend/. Video processing on CPU takes ~15-25s for 6 frames. Preview URL: https://eab33919-c694-482f-823a-4dcb557e1ab5.preview.emergentagent.com. Local backend at http://localhost:8001 works too and is faster.",
+  "rca of the issue": "No blocking issues found."
+}
