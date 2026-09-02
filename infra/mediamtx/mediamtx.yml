@@ -3,6 +3,10 @@
 paths:
   cam1:
   cam2:
+  # catch-all: lets worker-manager publish dynamically-registered cameras
+  # (FRAMEWORK.md §2.1 "camera is a config entry, not a code change") without
+  # a mediamtx.yml edit per camera.
+  all_others:
 
 hlsAddress: :8888
 rtspAddress: :8554

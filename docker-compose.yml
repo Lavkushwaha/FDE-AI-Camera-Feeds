@@ -42,6 +42,7 @@ services:
     volumes:
       - ./mock-cameras/classroom.mp4:/videos/classroom.mp4:ro
     depends_on: [mediamtx]
+    restart: unless-stopped
 
   mock-camera-2:
     build: ./mock-cameras
@@ -49,6 +50,7 @@ services:
     volumes:
       - ./mock-cameras/traffic.mp4:/videos/traffic.mp4:ro
     depends_on: [mediamtx]
+    restart: unless-stopped
   
   frame-grabber-1:
     image: jrottenberg/ffmpeg:6-ubuntu
@@ -87,9 +89,16 @@ services:
 
   gateway:
     build: ./services/gateway
+    volumes:
+      - ./services/gateway/src:/app/src
+      - ./data/frames:/frames:ro
     environment:
       DATABASE_URL: postgres://postgres:postgres@postgres:5432/school_poc
-    depends_on: [postgres, mediamtx]
+      PRESENCE_URL: http://presence-timeline:4004
+      MEDIAMTX_HLS: http://mediamtx:8888
+      FRAMES_DIR: /frames
+      PUBLIC_BASE: http://localhost:4000
+    depends_on: [postgres, mediamtx, presence-timeline]
     ports: ["4000:4000"]
 
   mapping-service:
@@ -127,6 +136,24 @@ services:
       OLLAMA_URL: http://ollama:11434
     depends_on: [postgres, qdrant, ollama]
     ports: ["4004:4004"]
+
+  dashboard:
+    build: ./dashboard
+    ports: ["3000:80"]
+    depends_on: [gateway]
+
+  worker-manager:
+    build: ./services/worker-manager
+    volumes:
+      - ./services/worker-manager/src:/app/src
+      - ./data/frames:/frames
+      - ./data/videos:/videos:ro
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/school_poc
+      MEDIAMTX_RTSP: rtsp://mediamtx:8554
+      FRAMES_DIR: /frames
+    depends_on: [postgres, mediamtx]
+    ports: ["4005:4005"]
 
 volumes:
   ollama_data:

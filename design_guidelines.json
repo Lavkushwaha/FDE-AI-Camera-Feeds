@@ -1,0 +1,235 @@
+{
+  "project_name": "Vision Intelligence Core (VIC)",
+  "app_type": "Operator Console / Computer Vision Analytics Platform",
+  "archetype": "The Performance Pro & Tactical Command Center (Palantir / Datadog / Verkada Aesthetic)",
+  "theme": "Dark Mode Default (Midnight Obsidian & High-Density Tactical UI)",
+  "typography": {
+    "heading_font": "Barlow Condensed, sans-serif",
+    "body_font": "Inter, sans-serif",
+    "mono_font": "JetBrains Mono, monospace",
+    "font_imports": "https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800;900&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap",
+    "hierarchy": {
+      "h1_hero_heading": "text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight uppercase font-heading",
+      "h2_section_heading": "text-xl sm:text-2xl lg:text-3xl font-bold tracking-tight uppercase font-heading",
+      "h3_card_heading": "text-lg sm:text-xl font-semibold tracking-normal font-heading",
+      "h4_sub_heading": "text-sm sm:text-base font-medium tracking-wide font-heading text-slate-300",
+      "body_text": "text-xs sm:text-sm font-normal text-slate-300 font-body leading-relaxed",
+      "label_overline": "text-[10px] sm:text-xs font-mono font-bold uppercase tracking-[0.2em] text-cyan-400",
+      "code_mono": "text-xs sm:text-sm font-mono text-amber-400"
+    }
+  },
+  "colors": {
+    "background_canvas": "#090A0F",
+    "panel_background": "#12141C",
+    "card_background": "#181B26",
+    "card_hover_background": "#1F2332",
+    "border_subtle": "#1E2435",
+    "border_glow": "rgba(6, 182, 212, 0.4)",
+    "primary_accent": "#F59E0B",
+    "primary_accent_hover": "#D97706",
+    "tactical_cyan": "#06B6D4",
+    "signal_crimson": "#EF4444",
+    "status_emerald": "#10B981",
+    "status_warning": "#F59E0B",
+    "status_offline": "#64748B",
+    "text_primary": "#F8FAFC",
+    "text_secondary": "#94A3B8",
+    "text_muted": "#64748B",
+    "overlay_scrim": "rgba(9, 10, 15, 0.75)"
+  },
+  "visual_enhancers": {
+    "hud_scanlines": "repeating-linear-gradient(0deg, rgba(0,0,0,0.15), rgba(0,0,0,0.15) 1px, transparent 1px, transparent 2px)",
+    "bounding_box_yolo": "border-2 border-cyan-400 bg-cyan-500/10 text-cyan-300 font-mono text-[10px] shadow-[0_0_12px_rgba(6,182,212,0.4)]",
+    "target_lock_pulse": "border-2 border-amber-500 bg-amber-500/20 shadow-[0_0_20px_rgba(245,158,11,0.6)] animate-pulse",
+    "glass_panel": "backdrop-blur-xl bg-[#12141C]/80 border border-slate-800/80 shadow-2xl",
+    "card_grid_borders": "border border-[#1E2435] hover:border-cyan-500/50 transition-colors duration-200"
+  },
+  "layout_and_grids": {
+    "structure": "Fixed Header Command Bar (h-14) + Collapsible Tactical Sidebar (w-64) + Fluid Workspace Canvas",
+    "density_mode": "High Density Mode B Grid System",
+    "spacing_scale": {
+      "container_padding": "p-4 sm:p-6",
+      "gap_tight": "gap-3",
+      "gap_standard": "gap-4 sm:gap-6",
+      "card_padding": "p-4"
+    },
+    "grid_layouts": {
+      "camera_grid": "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4",
+      "observability_tiles": "grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3",
+      "investigation_split": "grid grid-cols-1 lg:grid-cols-12 gap-6",
+      "subject_lock_retrospective": "col-span-12 lg:col-span-8",
+      "subject_lock_prospective": "col-span-12 lg:col-span-4"
+    }
+  },
+  "components": {
+    "command_bar": {
+      "name": "Header / Command Bar",
+      "elements": [
+        "VIC Platform Title & Live Pulse Indicator",
+        "Domain Pack Switcher (School / Retail / Traffic)",
+        "Global System Health Badge (Online / Offline count)",
+        "Quick Action Search / Subject Lookup Trigger",
+        "Time Range / Cadence Selector (1m, 10m, 1h, 1d)"
+      ]
+    },
+    "live_camera_grid": {
+      "name": "Live Camera Grid & YOLO Bounding Box Overlay",
+      "features": [
+        "Full screen or grid view toggle (1x1, 2x2, 3x3, 4x4)",
+        "YOLO Object Detection Overlay toggle (Bboxes with class label, confidence %, tracking ID)",
+        "Video Source Status Overlay (FPS, Bitrate, Resolution)",
+        "Individual Camera Controls (Snapshot, Lock Subject, Zone Polygon Edit, Expand View)"
+      ]
+    },
+    "camera_registry": {
+      "name": "Camera Registry & Manager",
+      "features": [
+        "Add Camera Modal / Form (Source Types: Local File upload/sample, RTSP Stream URL, Webcam device)",
+        "Camera Metadata Configuration (Location, FPS limit, Sensitivity, Assigned Domain Pack)",
+        "Remove / Disable Camera action with instant ledger update"
+      ]
+    },
+    "fact_ledger_viewer": {
+      "name": "Append-Only Fact Ledger",
+      "features": [
+        "Structured Fact Feed (Timestamp, Camera ID, Event Type, Class, Confidence, Zone, Raw JSON Payload)",
+        "Filtering & Search by Time, Camera, Event Class, Zone",
+        "Export Options: Download JSON / CSV functionality",
+        "Live append stream with pause/resume toggle"
+      ]
+    },
+    "anomaly_feed": {
+      "name": "Anomaly Feed & Incident Lifecycle",
+      "features": [
+        "Severity Color Badging (Critical, Warning, Info)",
+        "Incident Lifecycle Actions: Acknowledge (Ack) & Resolve",
+        "Thumbnail Crop of Detection with instant jump to retrospective video clip",
+        "Operator notes attachment"
+      ]
+    },
+    "llm_narrative_summaries": {
+      "name": "Grounded LLM Narrative Summaries",
+      "features": [
+        "Cadence Selector Tabs (1m, 10m, 1h, 1d)",
+        "AI Intelligence Briefing card with grounded facts references",
+        "Key anomaly highlights, trend analysis, and automated action recommendations",
+        "Regenerate summary trigger with citation tooltips"
+      ]
+    },
+    "face_identity_watchlist": {
+      "name": "Face Identity & Watchlist Admin",
+      "features": [
+        "Enroll Face Modal (Upload image, Assign Name, Role, Priority Level)",
+        "Watchlist Category Management (Whitelist, Blacklist, VIP, Staff, Restricted)",
+        "Live Face Match Event Stream with similarity score % and match alerts",
+        "Deregister / Remove Identity action"
+      ]
+    },
+    "subject_lock_investigation": {
+      "name": "Subject Lock / Investigation Mode",
+      "features": [
+        "Retrospective Sweep Timeline (Historical tracking across all cameras)",
+        "Prospective Live Alert Trigger (Automatic focus lock on new camera appearance)",
+        "Sighting Map / Camera Journey Flow (Visual path of subject across physical zones)",
+        "Export Investigation Report with snapshot evidence"
+      ]
+    },
+    "zone_editor": {
+      "name": "Zone Polygon Draw & Perimeter Editor",
+      "features": [
+        "Canvas overlay on camera frame still image",
+        "Interactive Polygon Point Drawing & Editing (Add vertex, Move vertex, Close polygon)",
+        "Zone Rule Configuration (Intrusion Detection, Loitering, Occupancy Limit, Directional Line Cross)",
+        "Save Zone Definition to Camera configuration"
+      ]
+    },
+    "domain_pack_switcher": {
+      "name": "Domain Pack Switcher",
+      "packs": {
+        "School": "Vocabulary: Student, Teacher, School Bus, Restricted Area, Hallway Loitering, Attendance",
+        "Retail": "Vocabulary: Customer, Cart, Checkout Queue, High-Value Display, Theft Anomaly, Dwell Time",
+        "Traffic": "Vocabulary: Vehicle, License Plate, Pedestrian, Red Light Violation, Wrong Way, Speed Anomaly"
+      }
+    },
+    "camera_health_grid": {
+      "name": "Camera Health & Telemetry Grid",
+      "features": [
+        "Visual Grid with Status Cards (Online [Emerald], Offline [Slate], Degraded [Amber])",
+        "Telemetry Stats: Ping Latency, Frame Loss %, Uptime, Stream Resolution",
+        "Quick Reconnect / Diagnostics Trigger"
+      ]
+    },
+    "observability_tiles": {
+      "name": "System Metrics & GPU Observability",
+      "features": [
+        "Frames Per Minute (FPM) gauge chart / sparkline",
+        "Inference Latency (ms) breakdown (YOLO + Face ReID + LLM summary)",
+        "GPU Acceleration Utilization % & VRAM usage meter",
+        "Fact Ledger Ingestion Rate (events/sec)"
+      ]
+    }
+  },
+  "motion": {
+    "hover_state": "transition-all duration-150 ease-out hover:-translate-y-0.5 hover:shadow-[0_4px_16px_rgba(6,182,212,0.15)] hover:border-cyan-500/50",
+    "click_state": "active:scale-[0.98] transition-transform duration-100",
+    "pulse_alert": "animate-pulse border-red-500 shadow-[0_0_15px_rgba(239,68,68,0.5)]",
+    "scanline_sweep": "relative overflow-hidden before:absolute before:inset-0 before:bg-gradient-to-b before:from-transparent before:via-cyan-500/10 before:to-transparent before:animate-scanline"
+  },
+  "media_and_images": {
+    "image_urls": [
+      {
+        "category": "command_center_hero",
+        "url": "https://images.pexels.com/photos/30692441/pexels-photo-30692441.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "description": "Dimly lit security operator command room with live monitoring screens"
+      },
+      {
+        "category": "surveillance_operators",
+        "url": "https://images.pexels.com/photos/30481728/pexels-photo-30481728.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "description": "Modern security control room team monitoring video analytics feeds"
+      }
+    ],
+    "canvas_rendering_rules": {
+      "yolo_overlay": "Draw 2px bounding box with cyan/amber stroke, draw translucent label badge top-left with font JetBrains Mono 11px",
+      "zone_polygon": "Draw 2px dashed crimson stroke with 15% fill opacity, render draggable vertex dots (6px radius cyan circles)"
+    }
+  },
+  "testing_attributes": {
+    "rule": "ALL interactive and key informational elements MUST include a data-testid attribute in kebab-case.",
+    "examples": [
+      "data-testid=\"domain-pack-switcher\"",
+      "data-testid=\"camera-grid-toggle-yolo\"",
+      "data-testid=\"add-camera-button\"",
+      "data-testid=\"fact-ledger-export-json\"",
+      "data-testid=\"fact-ledger-export-csv\"",
+      "data-testid=\"anomaly-ack-button\"",
+      "data-testid=\"anomaly-resolve-button\"",
+      "data-testid=\"subject-lock-trigger\"",
+      "data-testid=\"zone-editor-canvas\"",
+      "data-testid=\"enroll-face-submit-button\"",
+      "data-testid=\"llm-summary-cadence-1m\""
+    ]
+  },
+  "instructions_to_main_agent": [
+    "Build the dashboard in React JS with Tailwind CSS and Lucide React icons.",
+    "Utilize dark tactical palette (#090A0F canvas, #12141C panel, #181B26 cards, #06B6D4 tactical cyan, #F59E0B cyber amber, #EF4444 signal crimson).",
+    "Font styling: Headings MUST use Barlow Condensed font with tracking-tight and uppercase. Body MUST use Inter. Monospace numbers/code MUST use JetBrains Mono.",
+    "Implement all 11 key functionalities as distinct, interactive tab views or integrated panels within the operator console.",
+    "Include realistic mock data generators for live YOLO bounding boxes, camera streaming simulation, fact ledger streaming, and GPU telemetry.",
+    "Include HTML5 Canvas or SVG drawing logic for the Zone Polygon Editor.",
+    "Ensure JSON/CSV download functionality works seamlessly on the Fact Ledger.",
+    "Ensure every interactive element has a proper data-testid attribute.",
+    "Do NOT use standard default light templates or rounded bubbly designs; maintain a sharp, high-density, professional command-center aesthetic (Palantir/Verkada style)."
+  ],
+  "UNIVERSAL GUIDELINES FOR MAIN AGENT": [
+    "Dark colors look good when used independently without gradients. DO NOT use dark colors as gradients.",
+    "Don't make generic centered layouts, simplistic gradients, and uniform styling.",
+    "Create depth through layered design elements with z-index hierarchy.",
+    "Use glass-morphism effects with backdrop filters (12-24px blur).",
+    "You MUST NOT apply universal transition (e.g., transition: all). This results in breaking transforms. Always add transitions for specific interactive elements.",
+    "You MUST NOT center align the app container. Maintain natural operator UI flow.",
+    "Always use modern button styles like sharp/pill buttons with hover glow animations.",
+    "NEVER use AI assistant emoji characters like 🤖🧠💭💡🔮🎯 for UI icons. Use Lucide icons or custom SVGs.",
+    "Use 2-3x generous spacing in panel padding to maintain breathing room in dense UI.",
+    "Subtle scanlines, noise textures, custom status pulses, and selection states separate good from extraordinary."
+  ]
+}
